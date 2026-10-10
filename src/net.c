@@ -1053,3 +1053,486 @@ out:
 
 	return (dwTotalSize > 0);
 }
+
+/*
+ * Winston: one-click download of popular Linux distributions.
+ *
+ * Nothing here hardcodes a release number: every resolver asks the distribution's own
+ * infrastructure for the current release, so the menu entries don't go stale.
+ * Where the distribution publishes a SHA-256 for the image, the download is verified
+ * and a previously downloaded, still-valid ISO is reused (handy when making many drives).
+ */
+const char* distro_names[NB_DISTROS] = {
+	"CachyOS", "Linux Mint", "Debian", "Fedora", "Bazzite", "Arch Linux", "elementary OS"
+};
+
+typedef struct {
+	char url[1024];
+	char file[256];
+	char sha256[65];	// Lowercase hex digest, or empty if the distribution doesn't publish one
+} distro_info;
+
+#define DISTRO_USER_AGENT	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Winston"
+#define DISTRO_MAX_TEXT		(24 * MB)
+
+// Fetch a small text resource (checksum file, directory index, release feed).
+// Unlike DownloadToFileOrBuffer(), this does not require a Content-Length.
+static char* HttpGetText(const char* url)
+{
+	const char* accept_types[] = { "*/*\0", NULL };
+	char hostname[128], urlpath[16], *text = NULL, *tmp;
+	unsigned char buf[16 * 1024];
+	DWORD dwSize, dwRead = 0, status = 0;
+	size_t len = 0, cap = 0;
+	BOOL ok = FALSE;
+	HINTERNET hSession = NULL, hConnection = NULL, hRequest = NULL;
+	URL_COMPONENTSA UrlParts = { sizeof(URL_COMPONENTSA), NULL, 1, (INTERNET_SCHEME)0,
+		hostname, sizeof(hostname), 0, NULL, 1, urlpath, sizeof(urlpath), NULL, 1 };
+
+	if ((!InternetCrackUrlA(url, (DWORD)strlen(url), 0, &UrlParts))
+		|| (UrlParts.lpszHostName == NULL) || (UrlParts.lpszUrlPath == NULL))
+		goto out;
+	hostname[sizeof(hostname) - 1] = 0;
+
+	hSession = GetInternetSession(DISTRO_USER_AGENT, TRUE);
+	if (hSession == NULL)
+		goto out;
+	hConnection = InternetConnectA(hSession, UrlParts.lpszHostName, UrlParts.nPort, NULL, NULL,
+		INTERNET_SERVICE_HTTP, 0, (DWORD_PTR)NULL);
+	if (hConnection == NULL)
+		goto out;
+	hRequest = HttpOpenRequestA(hConnection, "GET", UrlParts.lpszUrlPath, NULL, NULL, accept_types,
+		INTERNET_FLAG_IGNORE_REDIRECT_TO_HTTP | INTERNET_FLAG_IGNORE_REDIRECT_TO_HTTPS |
+		INTERNET_FLAG_NO_COOKIES | INTERNET_FLAG_NO_UI | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_HYPERLINK |
+		((UrlParts.nScheme == INTERNET_SCHEME_HTTPS) ? INTERNET_FLAG_SECURE : 0), (DWORD_PTR)NULL);
+	if (hRequest == NULL)
+		goto out;
+	HttpSendRequestA(hRequest, NULL, 0, NULL, 0);
+	dwSize = sizeof(status);
+	HttpQueryInfoA(hRequest, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, (LPVOID)&status, &dwSize, NULL);
+	if (status != 200) {
+		uprintf("HTTP %lu for '%s'", (unsigned long)status, url);
+		goto out;
+	}
+
+	while (InternetReadFile(hRequest, buf, sizeof(buf), &dwRead) && (dwRead != 0)) {
+		if (len + dwRead + 1 > cap) {
+			cap = ((cap == 0) ? 64 * KB : cap * 2);
+			while (cap < len + dwRead + 1)
+				cap *= 2;
+			if (cap > DISTRO_MAX_TEXT)
+				goto out;
+			tmp = realloc(text, cap);
+			if (tmp == NULL)
+				goto out;
+			text = tmp;
+		}
+		memcpy(&text[len], buf, dwRead);
+		len += dwRead;
+	}
+	if (text != NULL) {
+		text[len] = 0;
+		ok = TRUE;
+	}
+
+out:
+	if (hRequest)
+		InternetCloseHandle(hRequest);
+	if (hConnection)
+		InternetCloseHandle(hConnection);
+	if (hSession)
+		InternetCloseHandle(hSession);
+	if (!ok)
+		safe_free(text);
+	return text;
+}
+
+static __inline BOOL IsWs(char c)
+{
+	return (c == ' ') || (c == '\t') || (c == '\r') || (c == '\n');
+}
+
+// Find "<64 hex digits> [*]<name>" in a checksum listing, where <name> starts with 'prefix'
+// and ends with 'suffix'. If 'digit_after_prefix' is set, the character following the prefix
+// must be a digit (this is used to tell "debian-13.x" apart from "debian-edu-13.x").
+// The match is token based, so it doesn't matter what kind of line endings the file uses.
+static BOOL FindSumLine(const char* text, const char* prefix, const char* suffix, BOOL digit_after_prefix,
+	char* name, size_t name_size, char* sha256)
+{
+	const char *p = text, *tok_end, *n, *n_end;
+	size_t i, plen = strlen(prefix), slen = strlen(suffix), nlen;
+	BOOL hex;
+
+	if (text == NULL)
+		return FALSE;
+	while (*p != 0) {
+		while (IsWs(*p))
+			p++;
+		tok_end = p;
+		while ((*tok_end != 0) && !IsWs(*tok_end))
+			tok_end++;
+		if (tok_end - p == 64) {
+			hex = TRUE;
+			for (i = 0; (i < 64) && hex; i++)
+				hex = isxdigit((unsigned char)p[i]);
+			if (hex) {
+				n = tok_end;
+				while (IsWs(*n))
+					n++;
+				if (*n == '*')
+					n++;
+				n_end = n;
+				while ((*n_end != 0) && !IsWs(*n_end))
+					n_end++;
+				nlen = (size_t)(n_end - n);
+				if ((nlen >= plen + slen) && (nlen < name_size) &&
+					(strncmp(n, prefix, plen) == 0) && (strncmp(n + nlen - slen, suffix, slen) == 0) &&
+					(!digit_after_prefix || ((nlen > plen) && isdigit((unsigned char)n[plen])))) {
+					memcpy(name, n, nlen);
+					name[nlen] = 0;
+					for (i = 0; i < 64; i++)
+						sha256[i] = (char)tolower((unsigned char)p[i]);
+					sha256[64] = 0;
+					return TRUE;
+				}
+			}
+		}
+		p = tok_end;
+	}
+	return FALSE;
+}
+
+// Return the highest purely numeric "a.b.c" sub-directory found in an HTML directory index
+static BOOL HighestDir(const char* html, char* out, size_t out_size)
+{
+	const char *p = html, *s, *e, *q;
+	unsigned long best[4] = { 0 }, cur[4];
+	size_t i, n, k;
+	BOOL found = FALSE, ok, greater;
+
+	if (html == NULL)
+		return FALSE;
+	while ((p = strstr(p, "href=\"")) != NULL) {
+		s = p + 6;
+		p = s;
+		for (e = s; (*e != 0) && (*e != '"'); e++);
+		if (*e == 0)
+			break;
+		n = (size_t)(e - s);
+		if ((n < 2) || (n >= out_size) || (s[n - 1] != '/') || !isdigit((unsigned char)s[0]))
+			continue;
+		ok = TRUE;
+		for (i = 0; i < n - 1; i++)
+			if (!isdigit((unsigned char)s[i]) && (s[i] != '.'))
+				ok = FALSE;
+		if (!ok)
+			continue;
+		memset(cur, 0, sizeof(cur));
+		q = s;
+		for (k = 0; (k < 4) && (q < s + n - 1); k++) {
+			cur[k] = strtoul(q, (char**)&q, 10);
+			if (*q == '.')
+				q++;
+		}
+		greater = !found;
+		for (k = 0; (k < 4) && !greater; k++) {
+			if (cur[k] > best[k])
+				greater = TRUE;
+			else if (cur[k] < best[k])
+				break;
+		}
+		if (greater) {
+			memcpy(best, cur, sizeof(best));
+			memcpy(out, s, n - 1);
+			out[n - 1] = 0;
+			found = TRUE;
+		}
+	}
+	return found;
+}
+
+static BOOL ResolveArch(distro_info* d)
+{
+	const char* base = "https://geo.mirror.pkgbuild.com/iso/latest/";
+	char name[256], *sums;
+
+	// Download through the stable "latest" alias, but save under the dated name
+	static_sprintf(d->url, "%sarchlinux-x86_64.iso", base);
+	static_strcpy(d->file, "archlinux-x86_64.iso");
+	sums = HttpGetText("https://geo.mirror.pkgbuild.com/iso/latest/sha256sums.txt");
+	if (FindSumLine(sums, "archlinux-", "-x86_64.iso", TRUE, name, sizeof(name), d->sha256))
+		static_strcpy(d->file, name);
+	free(sums);
+	return TRUE;
+}
+
+static BOOL ResolveDebian(distro_info* d)
+{
+	const char* base = "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/";
+	char name[256], url[256], *sums;
+	BOOL r = FALSE;
+
+	static_sprintf(url, "%sSHA256SUMS", base);
+	sums = HttpGetText(url);
+	if (FindSumLine(sums, "debian-", "-amd64-netinst.iso", TRUE, name, sizeof(name), d->sha256)) {
+		static_sprintf(d->url, "%s%s", base, name);
+		static_strcpy(d->file, name);
+		r = TRUE;
+	}
+	free(sums);
+	return r;
+}
+
+static BOOL ResolveMint(distro_info* d)
+{
+	const char* base = "https://mirrors.edge.kernel.org/linuxmint/stable/";
+	char ver[32], url[512], name[256], *list, *sums;
+
+	list = HttpGetText(base);
+	if (!HighestDir(list, ver, sizeof(ver))) {
+		free(list);
+		return FALSE;
+	}
+	free(list);
+	static_sprintf(d->file, "linuxmint-%s-cinnamon-64bit.iso", ver);
+	static_sprintf(d->url, "%s%s/%s", base, ver, d->file);
+	static_sprintf(url, "%s%s/sha256sum.txt", base, ver);
+	sums = HttpGetText(url);
+	if (!FindSumLine(sums, d->file, "", FALSE, name, sizeof(name), d->sha256))
+		d->sha256[0] = 0;
+	free(sums);
+	return TRUE;
+}
+
+static BOOL ResolveFedora(distro_info* d)
+{
+	// Fedora publishes a machine readable release feed, which includes the SHA-256
+	const char* key = "/Workstation/x86_64/iso/Fedora-Workstation-Live-";
+	char *json, *scan, *start, *end, *obj_start, *obj_end, *sha, *rel, url[1024];
+	int version, best = -1;
+	size_t len;
+
+	json = HttpGetText("https://fedoraproject.org/releases.json");
+	if (json == NULL)
+		return FALSE;
+	scan = json;
+	while ((scan = strstr(scan, key)) != NULL) {
+		for (start = scan; (start > json) && (*(start - 1) != '"'); start--);
+		for (end = scan; (*end != 0) && (*end != '"'); end++);
+		len = (size_t)(end - start);
+		scan = end;
+		if ((len < 16) || (len >= sizeof(url)) || (strncmp(&start[len - 4], ".iso", 4) != 0))
+			continue;
+		memcpy(url, start, len);
+		url[len] = 0;
+		// Only consider final releases
+		if (strstr(url, "/test/") || strstr(url, "Beta") || strstr(url, "/development/") || strstr(url, "_RC"))
+			continue;
+		rel = strstr(url, "/releases/");
+		if (rel == NULL)
+			continue;
+		version = atoi(rel + strlen("/releases/"));
+		if (version <= best)
+			continue;
+		best = version;
+		static_strcpy(d->url, url);
+		static_strcpy(d->file, PathFindFileNameU(url));
+		d->sha256[0] = 0;
+		// The digest lives in the same JSON object as the link
+		for (obj_start = start; (obj_start > json) && (*obj_start != '{'); obj_start--);
+		for (obj_end = end; (*obj_end != 0) && (*obj_end != '}'); obj_end++);
+		sha = strstr(obj_start, "\"sha256\"");
+		if ((sha != NULL) && (sha < obj_end)) {
+			sha = strchr(sha + 8, '"');
+			if ((sha != NULL) && (sha < obj_end) && (strspn(sha + 1, "0123456789abcdefABCDEF") == 64)) {
+				memcpy(d->sha256, sha + 1, 64);
+				d->sha256[64] = 0;
+			}
+		}
+	}
+	free(json);
+	return (best > 0);
+}
+static BOOL ResolveBazzite(distro_info* d)
+{
+	char name[256], *sums;
+
+	static_strcpy(d->url, "https://download.bazzite.gg/bazzite-stable-amd64.iso");
+	static_strcpy(d->file, "bazzite-stable-amd64.iso");
+	sums = HttpGetText("https://download.bazzite.gg/bazzite-stable-amd64.iso-CHECKSUM");
+	if (!FindSumLine(sums, d->file, "", FALSE, name, sizeof(name), d->sha256))
+		d->sha256[0] = 0;
+	free(sums);
+	return TRUE;
+}
+
+static BOOL ResolveCachyOS(distro_info* d)
+{
+	const char* base = "https://mirror.cachyos.org/ISO/desktop/";
+	char dir[32], url[1100], name[256], *list, *sums;
+
+	list = HttpGetText(base);
+	if (!HighestDir(list, dir, sizeof(dir))) {
+		free(list);
+		return FALSE;
+	}
+	free(list);
+	static_sprintf(d->file, "cachyos-desktop-linux-%s.iso", dir);
+	static_sprintf(d->url, "%s%s/%s", base, dir, d->file);
+	static_sprintf(url, "%s.sha256", d->url);
+	sums = HttpGetText(url);
+	if (!FindSumLine(sums, d->file, "", FALSE, name, sizeof(name), d->sha256))
+		d->sha256[0] = 0;
+	free(sums);
+	return TRUE;
+}
+
+static BOOL ResolveElementary(distro_info* d)
+{
+	// elementary's download links carry a short lived token, so read the current one off the site
+	const char* host = "https://dl.elementaryos.org/";
+	char *html, *p, *e;
+	size_t len;
+	BOOL r = FALSE;
+
+	html = HttpGetText("https://elementary.io/");
+	if (html == NULL)
+		return FALSE;
+	for (p = html; (p = strstr(p, host)) != NULL; p += strlen(host)) {
+		for (e = p; (*e != 0) && (*e != '"') && (*e != '\'') && (*e != '<') && !IsWs(*e); e++);
+		len = (size_t)(e - p);
+		if ((len < 16) || (len >= sizeof(d->url)) || (strncmp(&p[len - 4], ".iso", 4) != 0))
+			continue;
+		memcpy(d->url, p, len);
+		d->url[len] = 0;
+		if (strstr(d->url, "amd64") == NULL)
+			continue;
+		static_strcpy(d->file, PathFindFileNameU(d->url));
+		d->sha256[0] = 0;
+		r = TRUE;
+		break;
+	}
+	free(html);
+	return r;
+}
+
+static BOOL FileMatchesSha256(const char* path, const char* expected)
+{
+	uint8_t sum[32];
+	char hex[65];
+	int i;
+
+	if (!HashFile(HASH_SHA256, path, sum))
+		return FALSE;
+	for (i = 0; i < 32; i++)
+		sprintf(&hex[2 * i], "%02x", sum[i]);
+	return (_stricmp(hex, expected) == 0);
+}
+
+static DWORD WINAPI DownloadDistroThread(LPVOID param)
+{
+	int index = (int)(INT_PTR)param;
+	distro_info d = { 0 };
+	char profile[MAX_PATH], parent[MAX_PATH], dl_dir[MAX_PATH], path[MAX_PATH], msg[320];
+	BOOL resolved = FALSE, cached = FALSE;
+	const char* name = distro_names[index];
+
+	dialog_showing++;
+	ErrorStatus = 0;
+	PrintInfo(0, MSG_085, name);
+	uprintf("Looking up the latest %s release...", name);
+
+	switch (index) {
+	case 0: resolved = ResolveCachyOS(&d); break;
+	case 1: resolved = ResolveMint(&d); break;
+	case 2: resolved = ResolveDebian(&d); break;
+	case 3: resolved = ResolveFedora(&d); break;
+	case 4: resolved = ResolveBazzite(&d); break;
+	case 5: resolved = ResolveArch(&d); break;
+	case 6: resolved = ResolveElementary(&d); break;
+	}
+	if (!resolved) {
+		uprintf("Could not determine the current %s download", name);
+		ErrorStatus = RUFUS_ERROR(ERROR_INTERNET_ITEM_NOT_FOUND);
+		Notification(MB_ICONERROR | MB_CLOSE, lmprintf(MSG_194, name),
+			"Winston could not find the current %s download.\nPlease check your internet connection and try again.", name);
+		goto out;
+	}
+	uprintf("Latest %s image: %s", name, d.url);
+
+	// Save to %USERPROFILE%\Downloads\Winston so that the same image can be reused for more drives
+	if (GetEnvironmentVariableA("USERPROFILE", profile, sizeof(profile)) == 0)
+		static_strcpy(profile, app_data_dir);
+	static_sprintf(parent, "%s\\Downloads", profile);
+	static_sprintf(dl_dir, "%s\\Winston", parent);
+	CreateDirectoryU(parent, NULL);
+	CreateDirectoryU(dl_dir, NULL);
+	static_sprintf(path, "%s\\%s", dl_dir, d.file);
+
+	if ((d.sha256[0] != 0) && PathFileExistsU(path)) {
+		static_sprintf(msg, "%s (checking existing copy)", d.file);
+		PrintInfo(0, MSG_193, msg);
+		if (FileMatchesSha256(path, d.sha256)) {
+			uprintf("Reusing previously downloaded image '%s' (SHA-256 verified)", path);
+			cached = TRUE;
+		}
+	}
+
+	if (!cached) {
+		SendMessage(hMainDialog, UM_PROGRESS_INIT, 0, 0);
+		ErrorStatus = 0;
+		SendMessage(hMainDialog, UM_TIMER_START, 0, 0);
+		if (DownloadToFileOrBuffer(d.url, path, NULL, hMainDialog, TRUE) == 0) {
+			SendMessage(hMainDialog, UM_PROGRESS_EXIT, 0, 0);
+			if (SCODE_CODE(ErrorStatus) == ERROR_CANCELLED) {
+				uprintf("Download cancelled by user");
+				Notification(MB_ICONINFORMATION | MB_CLOSE, lmprintf(MSG_211), lmprintf(MSG_041));
+				PrintInfo(0, MSG_211);
+			} else {
+				Notification(MB_ICONERROR | MB_CLOSE, lmprintf(MSG_194, name), lmprintf(MSG_043, WindowsErrorString()));
+				PrintInfo(0, MSG_212);
+			}
+			goto out;
+		}
+		if (d.sha256[0] != 0) {
+			static_sprintf(msg, "%s (verifying checksum)", d.file);
+			PrintInfo(0, MSG_193, msg);
+			if (!FileMatchesSha256(path, d.sha256)) {
+				uprintf("FATAL: SHA-256 mismatch for '%s' - deleting the download", path);
+				DeleteFileU(path);
+				ErrorStatus = RUFUS_ERROR(APPERR(ERROR_BAD_SIGNATURE));
+				SendMessage(hMainDialog, UM_PROGRESS_EXIT, 0, 0);
+				Notification(MB_ICONERROR | MB_CLOSE, lmprintf(MSG_194, name),
+					"The downloaded file did not match its published SHA-256 checksum and was deleted.\n"
+					"Please try again.");
+				goto out;
+			}
+			uprintf("SHA-256 verified \xE2\x9C\x93");
+		} else {
+			uprintf("Note: %s does not publish a checksum for this image - it could not be verified", name);
+		}
+	}
+
+	// Hand the image over exactly as if the user had picked it with SELECT
+	safe_free(image_path);
+	image_path = safe_strdup(path);
+	PostMessage(hMainDialog, UM_SELECT_ISO, 0, 0);
+
+out:
+	SendMessage(hMainDialog, UM_ENABLE_CONTROLS, 0, 0);
+	dialog_showing--;
+	ExitThread(0);
+}
+
+BOOL DownloadDistro(int index)
+{
+	if ((index < 0) || (index >= NB_DISTROS))
+		return FALSE;
+	if (CreateThread(NULL, 0, DownloadDistroThread, (LPVOID)(INT_PTR)index, 0, NULL) == NULL) {
+		uprintf("Unable to start %s download thread", distro_names[index]);
+		ErrorStatus = RUFUS_ERROR(APPERR(ERROR_CANT_START_THREAD));
+		SendMessage(hMainDialog, UM_ENABLE_CONTROLS, 0, 0);
+		return FALSE;
+	}
+	return TRUE;
+}

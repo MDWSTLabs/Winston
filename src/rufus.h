@@ -872,6 +872,10 @@ extern BOOL SetUpdateCheck(void);
 extern BOOL CheckForUpdates(BOOL force);
 extern void DownloadNewVersion(void);
 extern BOOL DownloadISO(void);
+/* Winston: one-click Linux distribution downloads */
+#define NB_DISTROS 7
+extern const char* distro_names[NB_DISTROS];
+extern BOOL DownloadDistro(int index);
 extern BOOL IsDownloadable(const char* url);
 extern BOOL IsShown(HWND hDlg);
 extern uint32_t read_file(const char* path, uint8_t** buf);

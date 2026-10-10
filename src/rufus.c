@@ -2754,6 +2754,12 @@ static INT_PTR CALLBACK MainCallback(HWND hDlg, UINT message, WPARAM wParam, LPA
 			SetWindowTextU(GetDlgItem(hDlg, IDC_SELECT), uppercase_select[select_index]);
 			break;
 		default:
+			if ((LOWORD(wParam) >= IDM_DISTRO_FIRST) && (LOWORD(wParam) < IDM_DISTRO_FIRST + NB_DISTROS)) {
+				// Winston: download the selected Linux distribution, then proceed as if it had been selected
+				EnableControls(FALSE, FALSE);
+				DownloadDistro(LOWORD(wParam) - IDM_DISTRO_FIRST);
+				break;
+			}
 			return (INT_PTR)FALSE;
 		}
 		return (INT_PTR)TRUE;
@@ -2993,6 +2999,11 @@ static INT_PTR CALLBACK MainCallback(HWND hDlg, UINT message, WPARAM wParam, LPA
 			hMenu = CreatePopupMenu();
 			InsertMenuU(hMenu, -1, MF_BYPOSITION | ((select_index == 0) ? MF_CHECKED : 0), IDM_SELECT, uppercase_select[0]);
 			InsertMenuU(hMenu, -1, MF_BYPOSITION | ((select_index == 1) ? MF_CHECKED : 0), IDM_DOWNLOAD, uppercase_select[1]);
+			// Winston: download a Linux distribution directly
+			InsertMenuA(hMenu, -1, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
+			InsertMenuU(hMenu, -1, MF_BYPOSITION | MF_GRAYED, 0, "Download a Linux distro");
+			for (i = 0; i < NB_DISTROS; i++)
+				InsertMenuU(hMenu, -1, MF_BYPOSITION, IDM_DISTRO_FIRST + i, distro_names[i]);
 			TrackPopupMenuEx(hMenu, TPM_LEFTALIGN | TPM_TOPALIGN, Point.x, Point.y, hMainDialog, NULL);
 			DestroyMenu(hMenu);
 			break;
