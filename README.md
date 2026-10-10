@@ -11,10 +11,9 @@ Pick an image (or pick a distro), pick a drive, press START.</p>
 
 ## Why "Winston"?
 
-Winston is named after my corgi, Winston. He is a very good boy, he barks at everything (hence the
-language button), and like this tool he gets the job done with minimal fuss.
+Winston is my very special corgi boy. He also likes to have a job to do. So, hes now the face of the brand.
 
-<!-- WINSTON-PHOTO -->
+![Winston](docs/winston-photo.jpg)
 
 ## What is it?
 
@@ -115,7 +114,7 @@ Winston is an early, personal project.
 
 - **Rufus** is Copyright © 2011-2026 Pete Batard and contributors, released under the GPL v3.
   The original README is kept in [`docs/README.rufus.md`](docs/README.rufus.md).
-- Winston's changes are released under the same license. See [`LICENSE.txt`](LICENSE.txt) (GNU GPL v3).
+- Josh Ryan (josh@mdwst.cloud)'s changes are released under the same license. See [`LICENSE.txt`](LICENSE.txt) (GNU GPL v3).
 - Rufus's own data (Secure Boot revocation lists, the Windows ISO download script and some bootloader
   files) is still fetched from the Rufus project's servers, as in upstream.
-- Winston the corgi: chief barking officer.
+- Winston Ryan: CBO (Chief Barking Officer)
