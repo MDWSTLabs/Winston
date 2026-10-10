@@ -44,7 +44,7 @@
  */
 //#define RUFUS_TEST
 
-#define APPLICATION_NAME            "Rufus"
+#define APPLICATION_NAME            "Winston"
 #if defined(_M_AMD64)
 #define APPLICATION_ARCH            "x64"
 #elif defined(_M_IX86)
@@ -56,7 +56,7 @@
 #else
 #define APPLICATION_ARCH            "(Unknown Arch)"
 #endif
-#define COMPANY_NAME                "Akeo Consulting"
+#define COMPANY_NAME                "Winston"
 #define STR_NO_LABEL                "NO_LABEL"
 #define LEFT_TO_RIGHT_MARK          "\u200e"
 #define RIGHT_TO_LEFT_MARK          "\u200f"
@@ -876,6 +876,10 @@ extern BOOL DownloadISO(void);
 #define NB_DISTROS 7
 extern const char* distro_names[NB_DISTROS];
 extern BOOL DownloadDistro(int index);
+/* Winston: simple / expert user interface */
+extern BOOL winston_expert_mode, winston_simple_active;
+extern void WinstonInitUI(HWND hDlg);
+extern void WinstonSetMode(BOOL expert);
 extern BOOL IsDownloadable(const char* url);
 extern BOOL IsShown(HWND hDlg);
 extern uint32_t read_file(const char* path, uint8_t** buf);

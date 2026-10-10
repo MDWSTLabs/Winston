@@ -1,65 +1,121 @@
-Rufus: The Reliable USB Formatting Utility
-==========================================
+<p align="center">
+  <img src="docs/winston.png" alt="Winston the corgi" width="160">
+</p>
 
-[![VS2022 Build Status](https://img.shields.io/github/actions/workflow/status/pbatard/rufus/vs2026.yml?branch=master&style=flat-square&label=VS2026%20Build)](https://github.com/pbatard/rufus/actions/workflows/vs2026.yml)
-[![MinGW Build Status](https://img.shields.io/github/actions/workflow/status/pbatard/rufus/mingw.yml?branch=master&style=flat-square&label=MinGW%20Build)](https://github.com/pbatard/rufus/actions/workflows/mingw.yml)
-[![Coverity Scan Status](https://img.shields.io/coverity/scan/2172.svg?style=flat-square&label=Coverity%20Analysis)](https://scan.coverity.com/projects/pbatard-rufus)  
-[![Latest Release](https://img.shields.io/github/release-pre/pbatard/rufus.svg?style=flat-square&label=Latest%20Release)](https://github.com/pbatard/rufus/releases)
-[![Licence](https://img.shields.io/badge/license-GPLv3-blue.svg?style=flat-square&label=License)](https://www.gnu.org/licenses/gpl-3.0.en.html)
-[![Download Stats](https://img.shields.io/github/downloads/pbatard/rufus/total.svg?label=Downloads&style=flat-square)](https://github.com/pbatard/rufus/releases)
-[![Contributors](https://img.shields.io/github/contributors/pbatard/rufus.svg?style=flat-square&label=Contributors)](https://github.com/pbatard/rufus/graphs/contributors)
+<h1 align="center">Winston</h1>
 
-![Rufus logo](https://raw.githubusercontent.com/pbatard/rufus/master/res/icons/rufus-128.png)
+<p align="center"><b>Bootable USB drives, made simple.</b><br>
+Pick an image (or pick a distro), pick a drive, press START.</p>
 
-Rufus is a utility that helps format and create bootable USB flash drives.
+---
 
-Features
---------
+## Why "Winston"?
 
-* Format USB, flash card and virtual drives to FAT/FAT32/NTFS/UDF/exFAT/ReFS/ext2/ext3
-* Create DOS bootable USB drives using [FreeDOS](https://www.freedos.org) or MS-DOS
-* Create BIOS or UEFI bootable drives, including [UEFI bootable NTFS](https://github.com/pbatard/uefi-ntfs)
-* Create bootable drives from bootable ISOs (Windows, Linux, etc.)
-* Create bootable drives from bootable disk images, including compressed ones
-* Create Windows 11 installation drives for PCs that don't have TPM or Secure Boot
-* Create [Windows To Go](https://en.wikipedia.org/wiki/Windows_To_Go) drives
-* Create VHD/DD, VHDX and FFU images of an existing drive
-* Create persistent Linux partitions
-* Compute MD5, SHA-1, SHA-256 and SHA-512 checksums of the selected image
-* Perform runtime validation of UEFI bootable media
-* Improve Windows installation experience by automatically setting up OOBE parameters (local account, privacy options, etc.)
-* Perform bad blocks checks, including detection of "fake" flash drives
-* Download official Microsoft Windows 8, Windows 10 or Windows 11 retail ISOs
-* Download [UEFI Shell](https://github.com/pbatard/UEFI-Shell) ISOs
-* Modern and familiar UI, with [38 languages natively supported](https://github.com/pbatard/rufus/wiki/FAQ#What_languages_are_natively_supported_by_Rufus)
-* Small footprint. No installation required.
-* Portable. Secure Boot compatible.
-* 100% [Free Software](https://www.gnu.org/philosophy/free-sw) ([GPL v3](https://www.gnu.org/licenses/gpl-3.0))
+Winston is named after my corgi, Winston. He is a very good boy, he barks at everything (hence the
+language button), and like this tool he gets the job done with minimal fuss.
 
-Compilation
------------
+<!-- WINSTON-PHOTO -->
 
-Use either Visual Studio 2026 or MinGW and then invoke the `.sln` or `configure`/`make` respectively.
+## What is it?
 
-#### Visual Studio
+Winston is a friendlier front end for creating bootable USB drives. It is a fork of
+[**Rufus**](https://github.com/pbatard/rufus) by Pete Batard ([rufus.ie](https://rufus.ie)), and it keeps
+everything that makes Rufus reliable: the partitioning, formatting, bootloader handling, ISO and
+raw-image writing, UEFI/BIOS support, Windows installer tweaks, and so on. **Winston changes how you
+drive it, not how it writes to the disk.**
 
-Rufus is an OSI compliant Open Source project. You are entitled to
-download and use the *freely available* [Visual Studio Community Edition](https://www.visualstudio.com/vs/community/)
-to build, run or develop for Rufus. As per the Visual Studio Community Edition license,
-this applies regardless of whether you are an individual or a corporate user.
+> Winston is an independent project. It is not affiliated with, endorsed by, or supported by Rufus,
+> Akeo Consulting or Pete Batard. Please do not report Winston problems to the Rufus project.
 
-Additional information
-----------------------
+## What's different from Rufus
 
-Rufus provides extensive information about what it is doing, either through its
-easily accessible log, or through the [Windows debug facility](https://docs.microsoft.com/en-us/sysinternals/downloads/debugview).
+### 1. Simple mode by default, expert mode one click away
 
-* [__Official Website__](https://rufus.ie)
-* [FAQ](https://github.com/pbatard/rufus/wiki/FAQ)
-* [Security and safety measures](https://github.com/pbatard/rufus/wiki/Security)
+Rufus shows every option at once. Winston opens with three steps:
 
-Enhancements/Bugs
------------------
+1. **Select or drop an image**
+2. *(a small graphic shows the data flowing to the drive)*
+3. **Choose the destination drive**, then **START**
 
-Please use the [GitHub issue tracker](https://github.com/pbatard/rufus/issues)
-for reporting problems or suggesting new features.
+Everything else is chosen for you:
+
+| Setting | Simple mode |
+|---|---|
+| Partition scheme / target system | Auto-detected from the image and drive |
+| File system / cluster size / label | Chosen automatically |
+| Quick format | On |
+| Create extended label and icon files | On |
+| Check device for bad blocks | Off (1 pass) |
+
+Tick **Expert mode** (bottom right) and you get the full, traditional Rufus dialog with every option:
+partition scheme, target system, volume label, file system, cluster size, persistence, advanced drive and
+format options. Your last choice is remembered. Switching back and forth is non-destructive: the traditional
+layout is restored exactly as you left it.
+
+### 2. One-click Linux downloads
+
+Open the dropdown on the **SELECT** button and pick a distribution. Winston finds the current release,
+downloads it, verifies it, and loads it as if you had selected it yourself:
+
+| Distribution | Image |
+|---|---|
+| CachyOS | Desktop edition |
+| Linux Mint | Cinnamon edition |
+| Debian | Network installer (amd64) |
+| Fedora | Workstation Live |
+| Bazzite | Stable |
+| Arch Linux | Latest monthly ISO |
+| elementary OS | Latest stable |
+
+- **Never goes stale.** Release numbers are not hard-coded; each entry asks the distribution's own
+  infrastructure for the current release at the moment you click.
+- **Verified.** Where the distribution publishes a SHA-256 (all of the above except elementary OS), the
+  download is checked and deleted if it doesn't match.
+- **Reusable.** Images are kept in `Downloads\Winston`. If the copy there still matches its checksum, it
+  is reused, so making a batch of identical drives only downloads once.
+
+### 3. Quieter and tidier
+
+- No update-policy prompt, and Winston never checks rufus.ie for a "newer version" that would replace it.
+- Language, settings and info are three clear icons at the bottom left, using the supplied corgi artwork.
+- Own name, icon, window titles, version and settings location, so it can sit alongside Rufus.
+
+## Using it
+
+1. Run `winston.exe` (it asks for administrator rights, like Rufus, because it writes to disks).
+2. Drop an ISO on the window, click **SELECT**, or choose a distro from the SELECT dropdown.
+3. Choose the destination drive.
+4. Press **START**. **Everything on the destination drive is erased.**
+
+## Building from source
+
+Winston builds with MSYS2 / MinGW-w64, exactly like Rufus:
+
+```bash
+# from an MSYS2 MINGW64 shell
+pacman -S --needed mingw-w64-x86_64-toolchain base-devel autotools git upx
+git clone https://github.com/<your-account>/Winston.git
+cd Winston
+./configure --disable-debug
+make -j"$(nproc)"
+# the result is src/rufus.exe - copy or rename it to winston.exe
+```
+
+## Status
+
+Winston is an early, personal project.
+
+- The simple / expert interface and the distro downloader build cleanly, and the distro resolvers were
+  tested against the live servers.
+- **The new interface has not yet had a full interactive test pass** (all the dialogs, languages, dark mode
+  and high-DPI scaling). Expect rough edges and please open an issue.
+- Always double check the destination drive. Winston will happily erase the wrong one if you pick it.
+
+## Credits and license
+
+- **Rufus** is Copyright © 2011-2026 Pete Batard and contributors, released under the GPL v3.
+  The original README is kept in [`docs/README.rufus.md`](docs/README.rufus.md).
+- Winston's changes are released under the same license. See [`LICENSE.txt`](LICENSE.txt) (GNU GPL v3).
+- Rufus's own data (Secure Boot revocation lists, the Windows ISO download script and some bootloader
+  files) is still fetched from the Rufus project's servers, as in upstream.
+- Winston the corgi: chief barking officer.

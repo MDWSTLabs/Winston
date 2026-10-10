@@ -42,6 +42,7 @@
 
 #include "ui.h"
 #include "ui_data.h"
+#include "settings.h"
 
 UINT_PTR UM_LANGUAGE_MENU_MAX = UM_LANGUAGE_MENU;
 HIMAGELIST hUpImageList, hDownImageList;
@@ -57,6 +58,7 @@ static int rh, ddh, bw, hw, fw;
 // See GetFullWidth() for details on how these values are used
 static int sw, mw, bsw, sbw, ssw, tw, dbw;
 static WNDPROC progress_original_proc = NULL;
+static void PaintSimple(HDC hdc);
 static wchar_t wtbtext[2][128];
 static IAccPropServices* pfaps = NULL;
 
@@ -779,6 +781,10 @@ void SetPersistenceSize(void)
 void ToggleImageOptions(void)
 {
 	BOOL has_wintogo, has_persistence;
+
+	// Winston: the image options are not part of the simple interface
+	if (winston_simple_active)
+		return;
 	uint8_t entry_image_options = image_options;
 	int i, shift = rh;
 
@@ -1130,7 +1136,9 @@ void CreateAdditionalControls(HWND hDlg)
 		buffer = GetResource(hMainInstance, MAKEINTRESOURCEA(multitoolbar_icons[i] + icon_offset),
 			_RT_RCDATA, "toolbar icon", &bufsize, FALSE);
 		hIcon = CreateIconFromResourceEx(buffer, bufsize, TRUE, 0x30000, 0, 0, 0);
-		ChangeIconColor(&hIcon, 0);
+		// Winston: language / info / settings use the supplied artwork as is; only the log icon is tinted
+		if (i >= 3)
+			ChangeIconColor(&hIcon, 0);
 		// Mirror the "world" icon on RTL since we can't use an ImageList mirroring flag for that...
 		if (right_to_left_mode && (i == 0))
 			hIcon = CreateMirroredIcon(hIcon);
@@ -1605,6 +1613,11 @@ void SetBootTypeDropdownWidth(void)
 void OnPaint(HDC hdc)
 {
 	int i;
+
+	if (winston_simple_active) {
+		PaintSimple(hdc);
+		return;
+	}
 	COLORREF cp = is_darkmode_enabled ? DARKMODE_NORMAL_CONTROL_EDGE_COLOR : GetSysColor(COLOR_WINDOWTEXT);
 	HPEN hp = CreatePen(0, (fScale < 1.5f) ? 2 : 3, cp);
 	HPEN hop = (HPEN)SelectObject(hdc, hp);
@@ -1614,4 +1627,330 @@ void OnPaint(HDC hdc)
 	}
 	SelectObject(hdc, hop);
 	DeleteObject(hp);
+}
+
+/*
+ * Winston: simple / expert user interface
+ *
+ * "Simple" shows only: disk image -> (graphic) -> destination drive -> START, and relies on
+ * Rufus' existing auto-detection for partition scheme, target system, file system and so on.
+ * "Expert" is the traditional, full dialog. Switching is non destructive: the exact layout of
+ * the traditional dialog is captured when leaving it and restored when coming back.
+ */
+BOOL winston_expert_mode = FALSE;
+BOOL winston_simple_active = FALSE;
+
+#define WINSTON_MAX_CTRLS	96
+#define WINSTON_GOLD		RGB(0xFF, 0xD7, 0x00)
+
+static struct {
+	HWND hCtrl;
+	RECT rc;
+	BOOL visible;
+} saved_ctrls[WINSTON_MAX_CTRLS];
+static int nb_saved_ctrls = 0;
+static SIZE saved_window_size = { 0, 0 };
+static RECT arrow_rc = { 0, 0, 0, 0 }, header_rc = { 0, 0, 0, 0 };
+static BOOL saved_quick, saved_extended, saved_badblocks;
+static int saved_passes;
+static char saved_device_txt[128], saved_boot_txt[128];
+static HFONT hWinstonFont = NULL;
+
+// Controls that remain visible in simple mode
+static const int simple_visible_ids[] = {
+	IDS_BOOT_SELECTION_TXT, IDC_BOOT_SELECTION, IDC_SELECT, IDS_DEVICE_TXT, IDC_DEVICE,
+	IDC_PROGRESS, IDC_START, IDC_MULTI_TOOLBAR, IDC_STATUS, IDC_EXPERT_MODE
+};
+
+static BOOL IsSimpleControl(int id)
+{
+	int i;
+	for (i = 0; i < ARRAYSIZE(simple_visible_ids); i++)
+		if (simple_visible_ids[i] == id)
+			return TRUE;
+	return FALSE;
+}
+
+static void SnapshotLayout(void)
+{
+	HWND h;
+	RECT rc;
+
+	nb_saved_ctrls = 0;
+	for (h = GetWindow(hMainDialog, GW_CHILD); (h != NULL) && (nb_saved_ctrls < WINSTON_MAX_CTRLS); h = GetWindow(h, GW_HWNDNEXT)) {
+		GetWindowRect(h, &rc);
+		MapWindowPoints(NULL, hMainDialog, (POINT*)&rc, 2);
+		saved_ctrls[nb_saved_ctrls].hCtrl = h;
+		saved_ctrls[nb_saved_ctrls].rc = rc;
+		saved_ctrls[nb_saved_ctrls].visible = ((GetWindowLongPtr(h, GWL_STYLE) & WS_VISIBLE) != 0);
+		nb_saved_ctrls++;
+	}
+	GetWindowRect(hMainDialog, &rc);
+	saved_window_size.cx = rc.right - rc.left;
+	saved_window_size.cy = rc.bottom - rc.top;
+}
+
+static void RestoreLayout(void)
+{
+	int i;
+	RECT rc;
+
+	if (saved_window_size.cx == 0)
+		return;
+	GetWindowRect(hMainDialog, &rc);
+	SetWindowPos(hMainDialog, NULL, 0, 0, saved_window_size.cx, saved_window_size.cy, SWP_NOMOVE | SWP_NOZORDER);
+	for (i = 0; i < nb_saved_ctrls; i++) {
+		SetWindowPos(saved_ctrls[i].hCtrl, NULL, saved_ctrls[i].rc.left, saved_ctrls[i].rc.top,
+			saved_ctrls[i].rc.right - saved_ctrls[i].rc.left, saved_ctrls[i].rc.bottom - saved_ctrls[i].rc.top, SWP_NOZORDER);
+		ShowWindow(saved_ctrls[i].hCtrl, saved_ctrls[i].visible ? SW_SHOW : SW_HIDE);
+	}
+}
+
+static void PlaceCtrl(int id, int x, int y, int w, int h)
+{
+	HWND hCtrl = GetDlgItem(hMainDialog, id);
+	if (hCtrl == NULL)
+		return;
+	SetWindowPos(hCtrl, NULL, x, y, w, h, SWP_NOZORDER);
+	ShowWindow(hCtrl, SW_SHOW);
+}
+
+static int CtrlHeight(int id)
+{
+	RECT rc;
+	GetWindowRect(GetDlgItem(hMainDialog, id), &rc);
+	return rc.bottom - rc.top;
+}
+
+static int CtrlWidth(int id)
+{
+	RECT rc;
+	GetWindowRect(GetDlgItem(hMainDialog, id), &rc);
+	return rc.right - rc.left;
+}
+
+// Position the "Expert mode" checkbox at the bottom right of the traditional dialog
+static void PositionExpertCheckbox(void)
+{
+	RECT rcStart;
+	HWND hCheck = GetDlgItem(hMainDialog, IDC_EXPERT_MODE);
+	SIZE sz;
+	int w, gap = (int)(6.0f * fScale);
+
+	GetWindowRect(GetDlgItem(hMainDialog, IDC_START), &rcStart);
+	MapWindowPoints(NULL, hMainDialog, (POINT*)&rcStart, 2);
+	sz = GetTextSize(hCheck, NULL);
+	w = sz.cx + cbw + (int)(4.0f * fScale);
+	SetWindowPos(hCheck, NULL, mw + fw - w, rcStart.bottom + gap, w, ddh, SWP_NOZORDER);
+}
+
+static void ApplySimpleLayout(void)
+{
+	RECT rcClient, rcWin, rcStatus, rc;
+	HWND hCtrl;
+	SIZE sz;
+	int x, y, W, lh, selw, start_h, hdr_h, arrow_h, gap, tb_w, cb_w, sb_h, new_client_h, nonclient_h;
+
+	GetClientRect(hMainDialog, &rcClient);
+	GetWindowRect(hMainDialog, &rcWin);
+	gap = (int)(4.0f * fScale);
+	x = mw;
+	W = fw;
+	lh = CtrlHeight(IDS_DEVICE_TXT);
+	selw = CtrlWidth(IDC_SELECT);
+	start_h = ddbh + (int)(8.0f * fScale);
+	hdr_h = (int)(36.0f * fScale);
+	arrow_h = (int)(56.0f * fScale);
+
+	// Hide everything, then show and place only what simple mode needs
+	for (hCtrl = GetWindow(hMainDialog, GW_CHILD); hCtrl != NULL; hCtrl = GetWindow(hCtrl, GW_HWNDNEXT)) {
+		if (hCtrl == hStatus)
+			continue;
+		if (!IsSimpleControl(GetDlgCtrlID(hCtrl)))
+			ShowWindow(hCtrl, SW_HIDE);
+	}
+
+	// Friendlier captions for the two selectors (only when the label is still the stock English one)
+	GetWindowTextA(GetDlgItem(hMainDialog, IDS_DEVICE_TXT), saved_device_txt, sizeof(saved_device_txt));
+	GetWindowTextA(GetDlgItem(hMainDialog, IDS_BOOT_SELECTION_TXT), saved_boot_txt, sizeof(saved_boot_txt));
+	if (strcmp(saved_device_txt, "Device") == 0)
+		SetWindowTextA(GetDlgItem(hMainDialog, IDS_DEVICE_TXT), "Destination drive");
+	if (strcmp(saved_boot_txt, "Boot selection") == 0)
+		SetWindowTextA(GetDlgItem(hMainDialog, IDS_BOOT_SELECTION_TXT), "Disk image (ISO)");
+
+	y = gap * 2;
+	SetRect(&header_rc, x, y, x + W, y + hdr_h);
+	y += hdr_h + gap * 2;
+
+	PlaceCtrl(IDS_BOOT_SELECTION_TXT, x, y, W, lh);
+	y += lh + gap / 2;
+	PlaceCtrl(IDC_BOOT_SELECTION, x, y, W - selw - gap, ddh);
+	PlaceCtrl(IDC_SELECT, x + W - selw, y, selw, ddh);
+	y += ddh + gap * 2;
+
+	SetRect(&arrow_rc, x, y, x + W, y + arrow_h);
+	y += arrow_h + gap * 2;
+
+	PlaceCtrl(IDS_DEVICE_TXT, x, y, W, lh);
+	y += lh + gap / 2;
+	PlaceCtrl(IDC_DEVICE, x, y, W, ddh);
+	y += ddh + gap * 3;
+
+	PlaceCtrl(IDC_PROGRESS, x, y, W, ddh);
+	y += ddh + gap * 2;
+	PlaceCtrl(IDC_START, x, y, W, start_h);
+	y += start_h + gap * 3;
+
+	// Bottom row: language / info / settings on the left, "Expert mode" on the right
+	SendMessage(hMultiToolbar, TB_GETIDEALSIZE, (WPARAM)FALSE, (LPARAM)&sz);
+	tb_w = max((int)sz.cx, (int)(100.0f * fScale));
+	SendMessage(hMultiToolbar, TB_HIDEBUTTON, (WPARAM)IDC_LOG, (LPARAM)TRUE);
+	PlaceCtrl(IDC_MULTI_TOOLBAR, x, y, tb_w, ddbh);
+	hCtrl = GetDlgItem(hMainDialog, IDC_EXPERT_MODE);
+	sz = GetTextSize(hCtrl, NULL);
+	cb_w = sz.cx + cbw + (int)(4.0f * fScale);
+	PlaceCtrl(IDC_EXPERT_MODE, x + W - cb_w, y + (ddbh - ddh) / 2, cb_w, ddh);
+	y += ddbh + gap * 2;
+
+	// Status bar sits at the very bottom
+	GetWindowRect(hStatus, &rcStatus);
+	sb_h = rcStatus.bottom - rcStatus.top;
+	new_client_h = y + sb_h;
+	nonclient_h = (rcWin.bottom - rcWin.top) - (rcClient.bottom - rcClient.top);
+	SetWindowPos(hMainDialog, NULL, 0, 0, rcWin.right - rcWin.left, new_client_h + nonclient_h, SWP_NOMOVE | SWP_NOZORDER);
+	GetClientRect(hMainDialog, &rc);
+	SetWindowPos(hStatus, NULL, 0, rc.bottom - sb_h, rc.right, sb_h, SWP_NOZORDER);
+	ShowWindow(hStatus, SW_SHOW);
+}
+
+// Force the options that simple mode promises, remembering what the traditional dialog had
+static void ApplySimpleDefaults(void)
+{
+	saved_quick = (IsDlgButtonChecked(hMainDialog, IDC_QUICK_FORMAT) == BST_CHECKED);
+	saved_extended = (IsDlgButtonChecked(hMainDialog, IDC_EXTENDED_LABEL) == BST_CHECKED);
+	saved_badblocks = (IsDlgButtonChecked(hMainDialog, IDC_BAD_BLOCKS) == BST_CHECKED);
+	saved_passes = (int)SendDlgItemMessage(hMainDialog, IDC_NB_PASSES, CB_GETCURSEL, 0, 0);
+	CheckDlgButton(hMainDialog, IDC_QUICK_FORMAT, BST_CHECKED);
+	CheckDlgButton(hMainDialog, IDC_EXTENDED_LABEL, BST_CHECKED);
+	CheckDlgButton(hMainDialog, IDC_BAD_BLOCKS, BST_UNCHECKED);
+	SendDlgItemMessage(hMainDialog, IDC_NB_PASSES, CB_SETCURSEL, 0, 0);
+}
+
+static void RestoreExpertDefaults(void)
+{
+	CheckDlgButton(hMainDialog, IDC_QUICK_FORMAT, saved_quick ? BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hMainDialog, IDC_EXTENDED_LABEL, saved_extended ? BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hMainDialog, IDC_BAD_BLOCKS, saved_badblocks ? BST_CHECKED : BST_UNCHECKED);
+	SendDlgItemMessage(hMainDialog, IDC_NB_PASSES, CB_SETCURSEL, (WPARAM)saved_passes, 0);
+}
+
+void WinstonSetMode(BOOL expert)
+{
+	winston_expert_mode = expert;
+	if (expert) {
+		if (winston_simple_active) {
+			winston_simple_active = FALSE;
+			RestoreLayout();
+			SetWindowTextA(GetDlgItem(hMainDialog, IDS_DEVICE_TXT), saved_device_txt);
+			SetWindowTextA(GetDlgItem(hMainDialog, IDS_BOOT_SELECTION_TXT), saved_boot_txt);
+			SendMessage(hMultiToolbar, TB_HIDEBUTTON, (WPARAM)IDC_LOG, (LPARAM)FALSE);
+			RestoreExpertDefaults();
+			// Image options may have changed while their toggling was suspended
+			ToggleImageOptions();
+		}
+		PositionExpertCheckbox();
+	} else if (!winston_simple_active) {
+		SnapshotLayout();
+		ApplySimpleDefaults();
+		ApplySimpleLayout();
+		winston_simple_active = TRUE;
+		// Let Rufus' own auto-detection pick partition scheme, target system, file system, etc.
+		SendMessage(hMainDialog, WM_COMMAND, MAKEWPARAM(IDC_DEVICE, CBN_SELCHANGE), (LPARAM)hDeviceList);
+	}
+	CheckDlgButton(hMainDialog, IDC_EXPERT_MODE, expert ? BST_CHECKED : BST_UNCHECKED);
+	InvalidateRect(hMainDialog, NULL, TRUE);
+}
+
+// Called once, at the end of dialog initialization
+void WinstonInitUI(HWND hDlg)
+{
+	HWND hSelect = GetDlgItem(hDlg, IDC_SELECT);
+	LONG_PTR style = GetWindowLongPtr(hSelect, GWL_STYLE);
+
+	// Always a split button, so that the Linux distribution list is reachable even without Fido
+	SetWindowLongPtr(hSelect, GWL_STYLE, style | BS_SPLITBUTTON);
+	RedrawWindow(hSelect, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+	PositionExpertCheckbox();
+	CheckDlgButton(hMainDialog, IDC_EXPERT_MODE, winston_expert_mode ? BST_CHECKED : BST_UNCHECKED);
+	if (!winston_expert_mode)
+		WinstonSetMode(FALSE);
+}
+
+// Paint the simple mode header and the "image -> drive" graphic
+static void PaintSimple(HDC hdc)
+{
+	HBRUSH hGold = CreateSolidBrush(WINSTON_GOLD), hMuted, hOld;
+	COLORREF text = is_darkmode_enabled ? DARKMODE_NORMAL_TEXT_COLOR : GetSysColor(COLOR_WINDOWTEXT);
+	COLORREF bg = is_darkmode_enabled ? DARKMODE_NORMAL_DIALOG_BACKGROUND_COLOR : GetSysColor(COLOR_BTNFACE);
+	COLORREF muted;
+	HICON hIcon;
+	RECT rc;
+	POINT tri[3];
+	int cx, i, dpi, icon_sz, bar_w, bar_h, step, top, tri_h, tri_w;
+	HDC hScreen;
+	HFONT hOldFont;
+
+	// Header: application icon and name
+	icon_sz = (int)(32.0f * fScale);
+	hIcon = (HICON)LoadImage(hMainInstance, MAKEINTRESOURCE(IDI_ICON), IMAGE_ICON, icon_sz, icon_sz, LR_DEFAULTCOLOR);
+	if (hIcon != NULL) {
+		DrawIconEx(hdc, header_rc.left, header_rc.top + ((header_rc.bottom - header_rc.top) - icon_sz) / 2,
+			hIcon, icon_sz, icon_sz, 0, NULL, DI_NORMAL);
+		DestroyIcon(hIcon);
+	}
+	if (hWinstonFont == NULL) {
+		hScreen = GetDC(hMainDialog);
+		dpi = GetDeviceCaps(hScreen, LOGPIXELSY);
+		hWinstonFont = CreateFontA(-MulDiv(18, dpi, 72), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+			DEFAULT_CHARSET, 0, 0, PROOF_QUALITY, 0, "Segoe UI");
+		ReleaseDC(hMainDialog, hScreen);
+	}
+	hOldFont = (HFONT)SelectObject(hdc, hWinstonFont);
+	SetBkMode(hdc, TRANSPARENT);
+	SetTextColor(hdc, text);
+	rc = header_rc;
+	rc.left += icon_sz + (int)(8.0f * fScale);
+	DrawTextA(hdc, "Winston", -1, &rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+	SelectObject(hdc, hOldFont);
+
+	// Graphic: data flowing from the image down to the drive
+	cx = (arrow_rc.left + arrow_rc.right) / 2;
+	bar_w = max(4, (int)(5.0f * fScale));
+	bar_h = max(6, (int)(9.0f * fScale));
+	step = bar_h + max(4, (int)(5.0f * fScale));
+	tri_h = (int)(16.0f * fScale);
+	tri_w = (int)(30.0f * fScale);
+	top = arrow_rc.top + max(2, (int)(2.0f * fScale));
+
+	// Three packets, fading from the muted colour of the background to full gold
+	for (i = 0; i < 3; i++) {
+		int a = 90 + i * 80;	// 0..255 blend towards gold
+		muted = RGB((GetRValue(bg) * (255 - a) + GetRValue(WINSTON_GOLD) * a) / 255,
+			(GetGValue(bg) * (255 - a) + GetGValue(WINSTON_GOLD) * a) / 255,
+			(GetBValue(bg) * (255 - a) + GetBValue(WINSTON_GOLD) * a) / 255);
+		hMuted = CreateSolidBrush(muted);
+		hOld = (HBRUSH)SelectObject(hdc, hMuted);
+		SelectObject(hdc, GetStockObject(NULL_PEN));
+		RoundRect(hdc, cx - bar_w, top + i * step, cx + bar_w, top + i * step + bar_h, bar_w, bar_w);
+		SelectObject(hdc, hOld);
+		DeleteObject(hMuted);
+	}
+	tri[0].x = cx - tri_w / 2; tri[0].y = top + 3 * step;
+	tri[1].x = cx + tri_w / 2; tri[1].y = top + 3 * step;
+	tri[2].x = cx;             tri[2].y = top + 3 * step + tri_h;
+	hOld = (HBRUSH)SelectObject(hdc, hGold);
+	SelectObject(hdc, GetStockObject(NULL_PEN));
+	Polygon(hdc, tri, 3);
+	SelectObject(hdc, hOld);
+	DeleteObject(hGold);
 }

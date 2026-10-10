@@ -774,8 +774,16 @@ out:
 /*
  * Initiate a check for updates. If force is true, ignore the wait period
  */
+// Winston: updates come from the Winston repository, not from rufus.ie. Offering a Rufus build
+// as an upgrade would replace Winston, so the online update check is switched off.
+static const BOOL online_update_check_enabled = FALSE;
+
 BOOL CheckForUpdates(BOOL force)
 {
+	if (!online_update_check_enabled) {
+		uprintf("Online update check is disabled in this build");
+		return FALSE;
+	}
 	force_update_check = force;
 	if (update_check_thread != NULL)
 		return FALSE;

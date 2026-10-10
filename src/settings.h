@@ -29,6 +29,7 @@ extern char* ini_file;
  * List of setting names used by this application
  */
 #define SETTING_ADVANCED_MODE               "AdvancedMode"
+#define SETTING_WINSTON_EXPERT_MODE         "WinstonExpertMode"
 #define SETTING_ADVANCED_MODE_DEVICE        "ShowAdvancedDriveProperties"
 #define SETTING_ADVANCED_MODE_FORMAT        "ShowAdvancedFormatOptions"
 #define SETTING_COMM_CHECK                  "CommCheck64"

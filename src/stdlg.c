@@ -1811,6 +1811,11 @@ BOOL SetUpdateCheck(void)
 	if (ReadSetting64(SETTING_COMM_CHECK) != commcheck)
 		return FALSE;
 
+	// Winston: never prompt about an update policy and never look for a newer Rufus (see CheckForUpdates()).
+	// The interval is only kept positive because the Windows ISO download (Fido) depends on it.
+	if (ReadSetting32(SETTING_UPDATE_INTERVAL) <= 0)
+		WriteSetting32(SETTING_UPDATE_INTERVAL, 86400);
+
 	// If the update interval is not set, this is the first time we run so prompt the user
 	if (ReadSetting32(SETTING_UPDATE_INTERVAL) == 0) {
 		notification_info more_info;

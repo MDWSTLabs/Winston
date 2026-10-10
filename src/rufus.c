@@ -2273,6 +2273,9 @@ static void InitDialog(HWND hDlg)
 
 	CheckDlgButton(hMainDialog, IDC_LIST_USB_HDD, enable_HDDs ? BST_CHECKED : BST_UNCHECKED);
 
+	// Winston: apply the saved simple / expert interface
+	WinstonInitUI(hDlg);
+
 	PrintInfo(0, MSG_210);
 }
 
@@ -2448,6 +2451,10 @@ static INT_PTR CALLBACK MainCallback(HWND hDlg, UINT message, WPARAM wParam, LPA
 			SendMessage(hMainDialog, WM_NEXTDLGCTL, (WPARAM)hStart, TRUE);
 			// Must come last for the log window to get focus
 			ShowWindow(hLogDialog, log_displayed?SW_SHOW:SW_HIDE);
+			break;
+		case IDC_EXPERT_MODE:
+			WriteSettingBool(SETTING_WINSTON_EXPERT_MODE, IsDlgButtonChecked(hDlg, IDC_EXPERT_MODE) == BST_CHECKED);
+			WinstonSetMode(IsDlgButtonChecked(hDlg, IDC_EXPERT_MODE) == BST_CHECKED);
 			break;
 		case IDC_ADVANCED_DRIVE_PROPERTIES:
 			advanced_mode_device = !advanced_mode_device;
@@ -2765,7 +2772,7 @@ static INT_PTR CALLBACK MainCallback(HWND hDlg, UINT message, WPARAM wParam, LPA
 		return (INT_PTR)TRUE;
 
 	case UM_UPDATE_CSM_TOOLTIP:
-		ShowWindow(GetDlgItem(hMainDialog, IDS_CSM_HELP_TXT), ((target_type == TT_UEFI) || has_uefi_csm) ? SW_SHOW : SW_HIDE);
+		ShowWindow(GetDlgItem(hMainDialog, IDS_CSM_HELP_TXT), (!winston_simple_active && ((target_type == TT_UEFI) || has_uefi_csm)) ? SW_SHOW : SW_HIDE);
 		CreateTooltip(GetDlgItem(hMainDialog, IDS_CSM_HELP_TXT), lmprintf((target_type == TT_UEFI) ? MSG_152 : MSG_151), 30000);
 		break;
 	case UM_ENABLE_CONTROLS:
@@ -2998,7 +3005,9 @@ static INT_PTR CALLBACK MainCallback(HWND hDlg, UINT message, WPARAM wParam, LPA
 			ClientToScreen(pDropDown->hdr.hwndFrom, &Point);
 			hMenu = CreatePopupMenu();
 			InsertMenuU(hMenu, -1, MF_BYPOSITION | ((select_index == 0) ? MF_CHECKED : 0), IDM_SELECT, uppercase_select[0]);
-			InsertMenuU(hMenu, -1, MF_BYPOSITION | ((select_index == 1) ? MF_CHECKED : 0), IDM_DOWNLOAD, uppercase_select[1]);
+			// The Windows ISO download (Fido) entry is only offered when Fido is usable
+			if (fido_url != NULL)
+				InsertMenuU(hMenu, -1, MF_BYPOSITION | ((select_index == 1) ? MF_CHECKED : 0), IDM_DOWNLOAD, uppercase_select[1]);
 			// Winston: download a Linux distribution directly
 			InsertMenuA(hMenu, -1, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
 			InsertMenuU(hMenu, -1, MF_BYPOSITION | MF_GRAYED, 0, "Download a Linux distro");
@@ -3691,6 +3700,7 @@ skip_args_processing:
 	// Restore user-saved settings
 	advanced_mode_device = ReadSettingBool(SETTING_ADVANCED_MODE_DEVICE);
 	advanced_mode_format = ReadSettingBool(SETTING_ADVANCED_MODE_FORMAT);
+	winston_expert_mode = ReadSettingBool(SETTING_WINSTON_EXPERT_MODE);
 	preserve_timestamps = ReadSettingBool(SETTING_PRESERVE_TIMESTAMPS);
 	use_fake_units = !ReadSettingBool(SETTING_USE_PROPER_SIZE_UNITS);
 	is_vds_available = IsVdsAvailable(FALSE);

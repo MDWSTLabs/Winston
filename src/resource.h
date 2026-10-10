@@ -89,6 +89,7 @@
 #define IDR_DBX_LOONGARCH64             707
 #define IDM_SELECT                      901
 #define IDM_DOWNLOAD                    902
+#define IDC_EXPERT_MODE                1098
 #define IDM_DISTRO_FIRST                910
 #define IDM_DISTRO_LAST                 919
 #define IDC_DEVICE                      1001

@@ -70,6 +70,7 @@ static int image_option_move_ids[] = {
 	IDC_TEST,
 	IDC_START,
 	IDCANCEL,
+	IDC_EXPERT_MODE,
 	IDC_STATUS,
 	IDC_STATUS_TOOLBAR,
 };
@@ -106,6 +107,7 @@ static int advanced_device_move_ids[] = {
 	IDC_TEST,
 	IDC_START,
 	IDCANCEL,
+	IDC_EXPERT_MODE,
 	IDC_STATUS,
 	IDC_STATUS_TOOLBAR,
 };
@@ -126,6 +128,7 @@ static int advanced_format_move_ids[] = {
 	IDC_TEST,
 	IDC_START,
 	IDCANCEL,
+	IDC_EXPERT_MODE,
 	IDC_STATUS,
 	IDC_STATUS_TOOLBAR,
 };
