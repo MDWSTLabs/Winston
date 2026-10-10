@@ -106,10 +106,12 @@ make -j"$(nproc)"
 
 Winston is an early, personal project.
 
-- The simple / expert interface and the distro downloader build cleanly, and the distro resolvers were
-  tested against the live servers.
-- **The new interface has not yet had a full interactive test pass** (all the dialogs, languages, dark mode
-  and high-DPI scaling). Expect rough edges and please open an issue.
+- The simple / expert interface and the distro downloader build cleanly. The distro resolvers were tested
+  against the live servers, and both interface modes have been launched and checked in dark mode on
+  Windows 11.
+- **Not yet fully tested:** light mode, high-DPI scaling, changing language while in simple mode, and
+  writing every kind of image. Expect rough edges and please open an issue.
+- Persistent live-USB storage (Linux persistence) is only available in expert mode.
 - Always double check the destination drive. Winston will happily erase the wrong one if you pick it.
 
 ## Credits and license
