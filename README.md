@@ -94,7 +94,7 @@ Winston builds with MSYS2 / MinGW-w64, exactly like Rufus:
 ```bash
 # from an MSYS2 MINGW64 shell
 pacman -S --needed mingw-w64-x86_64-toolchain base-devel autotools git upx
-git clone https://github.com/<your-account>/Winston.git
+git clone https://github.com/MDWSTLabs/Winston.git
 cd Winston
 ./configure --disable-debug
 make -j"$(nproc)"
