@@ -427,11 +427,11 @@ BEGIN
         BLOCK "000004b0"
         BEGIN
             VALUE "Comments", "Based on Rufus by Pete Batard - https://rufus.ie"
-            VALUE "CompanyName", "Akeo Consulting"
+            VALUE "CompanyName", "MDWST Labs"
             VALUE "FileDescription", "Winston - bootable USB drives, made simple (based on Rufus)"
             VALUE "FileVersion", "1.0.0"
             VALUE "InternalName", "Winston"
-            VALUE "LegalCopyright", "© 2011-2026 Pete Batard (GPL v3)"
+            VALUE "LegalCopyright", "© 2011-2026 Pete Batard; Winston changes © 2026 MDWST Labs (GPL v3)"
             VALUE "LegalTrademarks", "https://www.gnu.org/licenses/gpl-3.0.html"
             VALUE "OriginalFilename", "winston.exe"
             VALUE "ProductName", "Winston"

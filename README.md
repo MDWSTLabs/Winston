@@ -114,6 +114,28 @@ Winston is an early, personal project.
 - Persistent live-USB storage (Linux persistence) is only available in expert mode.
 - Always double check the destination drive. Winston will happily erase the wrong one if you pick it.
 
+## Code signing policy
+
+Official `winston.exe` releases are built by [GitHub Actions](.github/workflows/winston.yml) from this
+repository and are intended to be signed with a free certificate from the
+[SignPath Foundation](https://signpath.org/), via [SignPath.io](https://about.signpath.io/).
+Until that application is approved, releases are **unsigned** and Windows SmartScreen may warn on first run.
+See [`docs/CODE-SIGNING.md`](docs/CODE-SIGNING.md) for how signing is set up and how to verify a download.
+
+**Team roles**
+
+- Authors, reviewers and approvers: [MDWST Labs](https://github.com/MDWSTLabs)
+
+**Privacy policy**
+
+Winston contains no telemetry and sends no personal data. It makes network requests only in these cases:
+
+- At startup and when needed, to the Rufus project's servers (`rufus.ie`) for Secure Boot revocation lists,
+  bootloader files and the location of the Windows ISO download script. Those servers see your IP address
+  and the normal HTTP request, as with any web request.
+- When you choose a Linux distribution from the SELECT menu, to that distribution's own download servers.
+- When you use the Windows ISO download, to GitHub and Microsoft, via the Fido script.
+- Winston never checks for or offers application updates.
 ## Credits and license
 
 - **Rufus** is Copyright © 2011-2026 Pete Batard and contributors, released under the GPL v3.

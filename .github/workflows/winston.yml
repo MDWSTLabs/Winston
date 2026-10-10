@@ -1,0 +1,107 @@
+name: Winston
+
+# Builds winston.exe on a GitHub-hosted runner and, once SignPath is configured
+# (see docs/CODE-SIGNING.md), signs it. Until then the unsigned build is still produced.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    outputs:
+      artifact-id: ${{ steps.upload-unsigned-artifact.outputs.artifact-id }}
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Install MinGW
+        uses: msys2/setup-msys2@v2.33.0
+        with:
+          msystem: mingw64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            base-devel
+            autotools
+            git
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build
+        run: |
+          ./configure --disable-debug
+          make -j4
+          mkdir -p dist
+          cp src/rufus.exe dist/winston.exe
+          strip dist/winston.exe
+
+      - name: SHA-256 (unsigned)
+        run: sha256sum dist/winston.exe
+
+      - name: Upload unsigned build
+        id: upload-unsigned-artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: winston-unsigned
+          path: dist/winston.exe
+
+  sign:
+    needs: build
+    # Only runs once SignPath is set up: repository variable SIGNPATH_ORGANIZATION_ID and secret SIGNPATH_API_TOKEN
+    if: ${{ github.event_name != 'pull_request' && vars.SIGNPATH_ORGANIZATION_ID != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Submit signing request to SignPath
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'winston' }}
+          signing-policy-slug: ${{ startsWith(github.ref, 'refs/tags/') && (vars.SIGNPATH_RELEASE_POLICY_SLUG || 'release-signing') || (vars.SIGNPATH_TEST_POLICY_SLUG || 'test-signing') }}
+          github-artifact-id: ${{ needs.build.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+
+      - name: Upload signed build
+        uses: actions/upload-artifact@v7
+        with:
+          name: winston-signed
+          path: signed/winston.exe
+
+  release:
+    needs: [build, sign]
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/') && needs.build.result == 'success' && (needs.sign.result == 'success' || needs.sign.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download the signed build (or the unsigned one if signing is not configured)
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.sign.result == 'success' && 'winston-signed' || 'winston-unsigned' }}
+          path: out
+
+      - name: Checksum
+        working-directory: out
+        run: sha256sum winston.exe | tee winston.exe.sha256
+
+      - name: Publish to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 \
+            || gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --prerelease --title "Winston ${GITHUB_REF_NAME}" --notes "Automated build of ${GITHUB_REF_NAME}."
+          gh release upload "${GITHUB_REF_NAME}" out/winston.exe out/winston.exe.sha256 --repo "${GITHUB_REPOSITORY}" --clobber
