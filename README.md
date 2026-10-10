@@ -13,7 +13,10 @@ Pick an image (or pick a distro), pick a drive, press START.</p>
 
 Winston is my very special corgi boy. He also likes to have a job to do. So, hes now the face of the brand.
 
-![Winston](docs/winston-photo.jpg)
+
+<div align="center">
+  <img src="(docs/winston-photo.jpg" alt="Winston" width="500">
+</div>
 
 ## What is it?
 
