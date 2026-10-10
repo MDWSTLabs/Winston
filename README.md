@@ -13,8 +13,9 @@ Pick an image (or pick a distro), pick a drive, press START.</p>
 
 Winston is my very special corgi boy. He also likes to have a job to do. So, hes now the face of the brand.
 
-
+<div align="center">
 <img width="567" height="794" alt="winston_photo" src="https://github.com/user-attachments/assets/92e8835c-045a-4cfb-977f-2cb7b8a95b39" />
+</div>
 
 ## What is it?
 
